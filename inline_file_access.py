@@ -39,10 +39,8 @@ class InlineFileTransferResponse(BaseModel):
     response_model=InlineFileTransferResponse,
     summary="Return an exact Kaggle file inline for Code Interpreter",
     description=(
-        "Use this whenever the user asks to analyse, clean, model, forecast, train, inspect real rows, "
-        "or create outputs from Kaggle data. The exact Kaggle file is downloaded by the bridge and returned "
-        "inline through openaiFileResponse so it becomes available to the conversation and Code Interpreter. "
-        "If filename is omitted, a useful structured file is selected automatically. The raw file must be 3 MB or smaller."
+        "Retrieve an exact Kaggle data file and return it inline through openaiFileResponse for Code Interpreter. "
+        "Use for analysis, cleaning, modelling, forecasting, or real-row inspection. Files must be 3 MB or smaller."
     ),
 )
 def analysis_file_inline(
