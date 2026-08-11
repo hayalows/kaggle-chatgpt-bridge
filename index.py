@@ -25,7 +25,7 @@ PUBLIC_BASE_URL = (
 
 app = FastAPI(
     title="Kaggle ChatGPT Bridge",
-    version="0.1.1",
+    version="0.1.2",
     description=(
         "Read-only bridge that lets a Custom GPT search and inspect public Kaggle "
         "datasets, competitions, notebooks, and models through the official Kaggle CLI."
@@ -163,8 +163,16 @@ def run_kaggle(args: list[str], timeout: int = 25) -> str:
     if not os.getenv("KAGGLE_API_TOKEN"):
         raise HTTPException(status_code=503, detail="KAGGLE_API_TOKEN is not configured on the server")
 
+    kaggle_config_dir = os.path.join(tempfile.gettempdir(), ".kaggle")
+    try:
+        os.makedirs(kaggle_config_dir, mode=0o700, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="Could not prepare writable Kaggle config directory") from exc
+
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
+    env["HOME"] = tempfile.gettempdir()
+    env["KAGGLE_CONFIG_DIR"] = kaggle_config_dir
 
     try:
         result = subprocess.run(
@@ -208,7 +216,7 @@ async def no_store(request, call_next):
 def root() -> dict[str, object]:
     return {
         "name": "Kaggle ChatGPT Bridge",
-        "version": "0.1.1",
+        "version": "0.1.2",
         "mode": "read-only",
         "docs": "/docs",
         "openapi": "/openapi.json",
@@ -220,7 +228,7 @@ def root() -> dict[str, object]:
 def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
-        version="0.1.1",
+        version="0.1.2",
         readOnly=True,
         kaggleConfigured=bool(os.getenv("KAGGLE_API_TOKEN")),
         bridgeAuthConfigured=bool(os.getenv("BRIDGE_API_KEY")),
