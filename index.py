@@ -14,6 +14,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, ConfigDict
 
 
 _vercel_host = os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or os.getenv("VERCEL_URL")
@@ -24,7 +25,7 @@ PUBLIC_BASE_URL = (
 
 app = FastAPI(
     title="Kaggle ChatGPT Bridge",
-    version="0.1.0",
+    version="0.1.1",
     description=(
         "Read-only bridge that lets a Custom GPT search and inspect public Kaggle "
         "datasets, competitions, notebooks, and models through the official Kaggle CLI."
@@ -49,6 +50,73 @@ NotebookSort = Literal[
     "scoreAscending", "scoreDescending", "viewCount", "voteCount"
 ]
 ModelSort = Literal["hotness", "downloadCount", "voteCount", "notebookCount", "createTime"]
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    readOnly: bool
+    kaggleConfigured: bool
+    bridgeAuthConfigured: bool
+
+
+class KaggleItem(BaseModel):
+    """Common Kaggle list fields while still preserving extra CLI columns."""
+
+    model_config = ConfigDict(extra="allow")
+
+    ref: str | None = None
+    id: str | None = None
+    title: str | None = None
+    name: str | None = None
+    owner: str | None = None
+    slug: str | None = None
+    size: str | None = None
+    lastUpdated: str | None = None
+    downloadCount: str | None = None
+    voteCount: str | None = None
+    usabilityRating: str | None = None
+    deadline: str | None = None
+    category: str | None = None
+    reward: str | None = None
+    teamCount: str | None = None
+    author: str | None = None
+    lastRunTime: str | None = None
+
+
+class PagedSearchResponse(BaseModel):
+    query: str
+    page: int
+    count: int
+    items: list[KaggleItem]
+
+
+class SearchResponse(BaseModel):
+    query: str
+    count: int
+    items: list[KaggleItem]
+
+
+class DatasetFilesResponse(BaseModel):
+    dataset: str
+    count: int
+    items: list[KaggleItem]
+
+
+class KaggleMetadata(BaseModel):
+    """Common dataset metadata fields with extra Kaggle fields preserved."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str | None = None
+    title: str | None = None
+    subtitle: str | None = None
+    description: str | None = None
+
+
+class DatasetMetadataResponse(BaseModel):
+    dataset: str
+    metadata: KaggleMetadata
 
 
 def _sanitize(text: str) -> str:
@@ -140,7 +208,7 @@ async def no_store(request, call_next):
 def root() -> dict[str, object]:
     return {
         "name": "Kaggle ChatGPT Bridge",
-        "version": "0.1.0",
+        "version": "0.1.1",
         "mode": "read-only",
         "docs": "/docs",
         "openapi": "/openapi.json",
@@ -148,21 +216,22 @@ def root() -> dict[str, object]:
     }
 
 
-@app.get("/api/health", operation_id="checkBridgeHealth")
-def health() -> dict[str, object]:
-    return {
-        "status": "ok",
-        "version": "0.1.0",
-        "readOnly": True,
-        "kaggleConfigured": bool(os.getenv("KAGGLE_API_TOKEN")),
-        "bridgeAuthConfigured": bool(os.getenv("BRIDGE_API_KEY")),
-    }
+@app.get("/api/health", operation_id="checkBridgeHealth", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(
+        status="ok",
+        version="0.1.1",
+        readOnly=True,
+        kaggleConfigured=bool(os.getenv("KAGGLE_API_TOKEN")),
+        bridgeAuthConfigured=bool(os.getenv("BRIDGE_API_KEY")),
+    )
 
 
 @app.get(
     "/api/datasets/search",
     operation_id="searchKaggleDatasets",
     dependencies=[Depends(require_bridge_auth)],
+    response_model=PagedSearchResponse,
 )
 def search_datasets(
     q: str = Query(default="", max_length=200, description="Dataset search terms"),
@@ -171,7 +240,7 @@ def search_datasets(
     file_type: DatasetFileType = "all",
     license: DatasetLicense = "all",
     user: str | None = Query(default=None, max_length=100),
-) -> dict[str, object]:
+) -> PagedSearchResponse:
     args = ["datasets", "list", "-v", "--page", str(page), "--sort-by", sort_by]
     if q:
         args += ["--search", q]
@@ -182,35 +251,37 @@ def search_datasets(
     if user:
         args += ["--user", user]
 
-    items = parse_csv_output(run_kaggle(args))
-    return {"query": q, "page": page, "count": len(items), "items": items}
+    items = [KaggleItem(**row) for row in parse_csv_output(run_kaggle(args))]
+    return PagedSearchResponse(query=q, page=page, count=len(items), items=items)
 
 
 @app.get(
     "/api/datasets/{owner}/{slug}/files",
     operation_id="listKaggleDatasetFiles",
     dependencies=[Depends(require_bridge_auth)],
+    response_model=DatasetFilesResponse,
 )
 def dataset_files(
     owner: str,
     slug: str,
     page_size: int = Query(default=20, ge=1, le=200),
     page_token: str | None = Query(default=None, max_length=500),
-) -> dict[str, object]:
+) -> DatasetFilesResponse:
     ref = f"{owner}/{slug}"
     args = ["datasets", "files", ref, "-v", "--page-size", str(page_size)]
     if page_token:
         args += ["--page-token", page_token]
-    items = parse_csv_output(run_kaggle(args))
-    return {"dataset": ref, "count": len(items), "items": items}
+    items = [KaggleItem(**row) for row in parse_csv_output(run_kaggle(args))]
+    return DatasetFilesResponse(dataset=ref, count=len(items), items=items)
 
 
 @app.get(
     "/api/datasets/{owner}/{slug}/metadata",
     operation_id="getKaggleDatasetMetadata",
     dependencies=[Depends(require_bridge_auth)],
+    response_model=DatasetMetadataResponse,
 )
-def dataset_metadata(owner: str, slug: str) -> dict[str, object]:
+def dataset_metadata(owner: str, slug: str) -> DatasetMetadataResponse:
     ref = f"{owner}/{slug}"
     with tempfile.TemporaryDirectory(prefix="kaggle-meta-") as tmpdir:
         run_kaggle(["datasets", "metadata", ref, "-p", tmpdir], timeout=30)
@@ -219,33 +290,35 @@ def dataset_metadata(owner: str, slug: str) -> dict[str, object]:
             raise HTTPException(status_code=502, detail="Kaggle did not return dataset metadata")
         with open(path, "r", encoding="utf-8") as handle:
             metadata = json.load(handle)
-    return {"dataset": ref, "metadata": metadata}
+    return DatasetMetadataResponse(dataset=ref, metadata=KaggleMetadata(**metadata))
 
 
 @app.get(
     "/api/competitions/search",
     operation_id="searchKaggleCompetitions",
     dependencies=[Depends(require_bridge_auth)],
+    response_model=PagedSearchResponse,
 )
 def search_competitions(
     q: str = Query(default="", max_length=200),
     page: int = Query(default=1, ge=1, le=100),
     category: CompetitionCategory = "all",
     sort_by: CompetitionSort = "latestDeadline",
-) -> dict[str, object]:
+) -> PagedSearchResponse:
     args = ["competitions", "list", "-v", "--page", str(page), "--sort-by", sort_by]
     if q:
         args += ["--search", q]
     if category != "all":
         args += ["--category", category]
-    items = parse_csv_output(run_kaggle(args))
-    return {"query": q, "page": page, "count": len(items), "items": items}
+    items = [KaggleItem(**row) for row in parse_csv_output(run_kaggle(args))]
+    return PagedSearchResponse(query=q, page=page, count=len(items), items=items)
 
 
 @app.get(
     "/api/notebooks/search",
     operation_id="searchKaggleNotebooks",
     dependencies=[Depends(require_bridge_auth)],
+    response_model=PagedSearchResponse,
 )
 def search_notebooks(
     q: str = Query(default="", max_length=200),
@@ -256,7 +329,7 @@ def search_notebooks(
     sort_by: NotebookSort = "hotness",
     dataset: str | None = Query(default=None, max_length=220, description="owner/dataset-slug"),
     competition: str | None = Query(default=None, max_length=160),
-) -> dict[str, object]:
+) -> PagedSearchResponse:
     args = [
         "kernels", "list", "-v", "--page", str(page), "--page-size", str(page_size),
         "--sort-by", sort_by,
@@ -271,28 +344,29 @@ def search_notebooks(
         args += ["--dataset", dataset]
     if competition:
         args += ["--competition", competition]
-    items = parse_csv_output(run_kaggle(args))
-    return {"query": q, "page": page, "count": len(items), "items": items}
+    items = [KaggleItem(**row) for row in parse_csv_output(run_kaggle(args))]
+    return PagedSearchResponse(query=q, page=page, count=len(items), items=items)
 
 
 @app.get(
     "/api/models/search",
     operation_id="searchKaggleModels",
     dependencies=[Depends(require_bridge_auth)],
+    response_model=SearchResponse,
 )
 def search_models(
     q: str = Query(default="", max_length=200),
     page_size: int = Query(default=20, ge=1, le=100),
     sort_by: ModelSort = "hotness",
     owner: str | None = Query(default=None, max_length=100),
-) -> dict[str, object]:
+) -> SearchResponse:
     args = ["models", "list", "-v", "--page-size", str(page_size), "--sort-by", sort_by]
     if q:
         args += ["--search", q]
     if owner:
         args += ["--owner", owner]
-    items = parse_csv_output(run_kaggle(args))
-    return {"query": q, "count": len(items), "items": items}
+    items = [KaggleItem(**row) for row in parse_csv_output(run_kaggle(args))]
+    return SearchResponse(query=q, count=len(items), items=items)
 
 
 @app.get("/privacy", include_in_schema=False, response_class=HTMLResponse)
