@@ -24,12 +24,6 @@ class OpenAIInlineFile(BaseModel):
 
 class InlineFileTransferResponse(BaseModel):
     openaiFileResponse: list[OpenAIInlineFile]
-    dataset: str
-    filename: str
-    sizeBytes: int
-    mimeType: str
-    provenance: str
-    transferMode: str
 
 
 @router.get(
@@ -37,10 +31,10 @@ class InlineFileTransferResponse(BaseModel):
     operation_id="getKaggleDatasetFileForAnalysis",
     dependencies=[Depends(index.require_bridge_auth)],
     response_model=InlineFileTransferResponse,
-    summary="Return an exact Kaggle file inline for Code Interpreter",
+    summary="Download real Kaggle file into the conversation",
     description=(
-        "Retrieve an exact Kaggle data file and return it inline through openaiFileResponse for Code Interpreter. "
-        "Use for analysis, cleaning, modelling, forecasting, or real-row inspection. Files must be 3 MB or smaller."
+        "MUST call for full analysis or modelling when real rows are needed. Returns the exact Kaggle file inline "
+        "for Code Interpreter. Do not substitute a preview. Raw file must be 3 MB or smaller."
     ),
 )
 def analysis_file_inline(
@@ -65,7 +59,7 @@ def analysis_file_inline(
                 status_code=413,
                 detail=(
                     f"{selected} is {actual_size} bytes. Inline GPT Action transfer is limited to "
-                    f"{max_bytes} bytes on this Vercel deployment. Try a smaller file or preview it instead."
+                    f"{max_bytes} bytes. Use readKaggleDatasetRows as the fallback."
                 ),
             )
         if not file_access._allowed_file(selected):
@@ -79,11 +73,5 @@ def analysis_file_inline(
                 mime_type=file_access._mime(selected),
                 content=content,
             )
-        ],
-        dataset=f"{owner}/{slug}",
-        filename=selected,
-        sizeBytes=actual_size,
-        mimeType=file_access._mime(selected),
-        provenance="Exact file retrieved from Kaggle; not reconstructed or regenerated.",
-        transferMode="inline-base64",
+        ]
     )
