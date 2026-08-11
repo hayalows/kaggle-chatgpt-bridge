@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import base64
 import tempfile
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import index
 import file_access
@@ -13,12 +13,13 @@ import file_access
 router = APIRouter()
 INLINE_MAX_FILE_BYTES = 3_000_000
 PreferredFormat = Literal["auto", "csv", "tsv", "parquet", "json", "xlsx", "sqlite", "zip"]
+Base64FileContent = Annotated[str, Field(json_schema_extra={"format": "byte"})]
 
 
 class OpenAIInlineFile(BaseModel):
     name: str
     mime_type: str
-    content: str
+    content: Base64FileContent
 
 
 class InlineFileTransferResponse(BaseModel):
@@ -54,7 +55,7 @@ def analysis_file_inline(
     owner = file_access._safe_ref(owner, "owner")
     slug = file_access._safe_ref(slug, "slug")
 
-    selected, listed_size = file_access._select(
+    selected, _ = file_access._select(
         file_access._list_files(owner, slug), filename, prefer, max_bytes
     )
 
