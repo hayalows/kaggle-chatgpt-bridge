@@ -10,8 +10,14 @@ file_access._download = download_exact
 # Keep legacy transfer routes available server-side, but hide them from GPT Actions.
 # The simple CSV-text action uses a much simpler schema and is the primary data path.
 for route in file_access.router.routes:
-    if getattr(route, "operation_id", None) == "getKaggleDatasetFileForAnalysis":
+    operation_id = getattr(route, "operation_id", None)
+    if operation_id == "getKaggleDatasetFileForAnalysis":
         route.include_in_schema = False
+    elif operation_id == "previewKaggleDatasetFile":
+        route.description = (
+            "Preview a small sample from the exact Kaggle file. For full CSV analysis, "
+            "use readKaggleDatasetRows and continue while hasMore is true."
+        )
 
 for route in inline_file_access.router.routes:
     if getattr(route, "operation_id", None) == "getKaggleDatasetFileForAnalysis":
