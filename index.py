@@ -16,7 +16,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://YOUR-DOMAIN.vercel.app").rstrip("/")
+_vercel_host = os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or os.getenv("VERCEL_URL")
+PUBLIC_BASE_URL = (
+    os.getenv("PUBLIC_BASE_URL")
+    or (f"https://{_vercel_host}" if _vercel_host else "https://YOUR-DOMAIN.vercel.app")
+).rstrip("/")
 
 app = FastAPI(
     title="Kaggle ChatGPT Bridge",
@@ -155,7 +159,11 @@ def health() -> dict[str, object]:
     }
 
 
-@app.get("/api/datasets/search", operation_id="searchKaggleDatasets", dependencies=[Depends(require_bridge_auth)])
+@app.get(
+    "/api/datasets/search",
+    operation_id="searchKaggleDatasets",
+    dependencies=[Depends(require_bridge_auth)],
+)
 def search_datasets(
     q: str = Query(default="", max_length=200, description="Dataset search terms"),
     page: int = Query(default=1, ge=1, le=100),
@@ -173,11 +181,16 @@ def search_datasets(
         args += ["--license", license]
     if user:
         args += ["--user", user]
+
     items = parse_csv_output(run_kaggle(args))
     return {"query": q, "page": page, "count": len(items), "items": items}
 
 
-@app.get("/api/datasets/{owner}/{slug}/files", operation_id="listKaggleDatasetFiles", dependencies=[Depends(require_bridge_auth)])
+@app.get(
+    "/api/datasets/{owner}/{slug}/files",
+    operation_id="listKaggleDatasetFiles",
+    dependencies=[Depends(require_bridge_auth)],
+)
 def dataset_files(
     owner: str,
     slug: str,
@@ -192,7 +205,11 @@ def dataset_files(
     return {"dataset": ref, "count": len(items), "items": items}
 
 
-@app.get("/api/datasets/{owner}/{slug}/metadata", operation_id="getKaggleDatasetMetadata", dependencies=[Depends(require_bridge_auth)])
+@app.get(
+    "/api/datasets/{owner}/{slug}/metadata",
+    operation_id="getKaggleDatasetMetadata",
+    dependencies=[Depends(require_bridge_auth)],
+)
 def dataset_metadata(owner: str, slug: str) -> dict[str, object]:
     ref = f"{owner}/{slug}"
     with tempfile.TemporaryDirectory(prefix="kaggle-meta-") as tmpdir:
@@ -205,7 +222,11 @@ def dataset_metadata(owner: str, slug: str) -> dict[str, object]:
     return {"dataset": ref, "metadata": metadata}
 
 
-@app.get("/api/competitions/search", operation_id="searchKaggleCompetitions", dependencies=[Depends(require_bridge_auth)])
+@app.get(
+    "/api/competitions/search",
+    operation_id="searchKaggleCompetitions",
+    dependencies=[Depends(require_bridge_auth)],
+)
 def search_competitions(
     q: str = Query(default="", max_length=200),
     page: int = Query(default=1, ge=1, le=100),
@@ -221,7 +242,11 @@ def search_competitions(
     return {"query": q, "page": page, "count": len(items), "items": items}
 
 
-@app.get("/api/notebooks/search", operation_id="searchKaggleNotebooks", dependencies=[Depends(require_bridge_auth)])
+@app.get(
+    "/api/notebooks/search",
+    operation_id="searchKaggleNotebooks",
+    dependencies=[Depends(require_bridge_auth)],
+)
 def search_notebooks(
     q: str = Query(default="", max_length=200),
     page: int = Query(default=1, ge=1, le=100),
@@ -232,7 +257,10 @@ def search_notebooks(
     dataset: str | None = Query(default=None, max_length=220, description="owner/dataset-slug"),
     competition: str | None = Query(default=None, max_length=160),
 ) -> dict[str, object]:
-    args = ["kernels", "list", "-v", "--page", str(page), "--page-size", str(page_size), "--sort-by", sort_by]
+    args = [
+        "kernels", "list", "-v", "--page", str(page), "--page-size", str(page_size),
+        "--sort-by", sort_by,
+    ]
     if q:
         args += ["--search", q]
     if language != "all":
@@ -247,7 +275,11 @@ def search_notebooks(
     return {"query": q, "page": page, "count": len(items), "items": items}
 
 
-@app.get("/api/models/search", operation_id="searchKaggleModels", dependencies=[Depends(require_bridge_auth)])
+@app.get(
+    "/api/models/search",
+    operation_id="searchKaggleModels",
+    dependencies=[Depends(require_bridge_auth)],
+)
 def search_models(
     q: str = Query(default="", max_length=200),
     page_size: int = Query(default=20, ge=1, le=100),
